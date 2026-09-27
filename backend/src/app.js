@@ -1,5 +1,6 @@
 import express from 'express';
 import { createAuthRouter } from './auth/auth.routes.js';
+import { createBookingsRouter } from './bookings/bookings.routes.js';
 import { createDiagnosticsRouter } from './diagnostics/diagnostics.routes.js';
 import { errorHandler } from './middleware/error-handler.js';
 
@@ -22,6 +23,7 @@ export function createApp({ database, tokenService } = {}) {
 
   app.use('/api/v1/auth', createAuthRouter({ database, tokenService }));
   app.use('/api/v1', createDiagnosticsRouter({ database, tokenService }));
+  app.use('/api/v1/bookings', createBookingsRouter({ database, tokenService }));
   app.use(errorHandler);
 
   return app;

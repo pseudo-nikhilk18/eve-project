@@ -102,6 +102,7 @@ the development server.
 | `POST` | `/api/v1/diagnostic-centres` | Admin | Create a diagnostic centre |
 | `POST` | `/api/v1/diagnostic-tests` | Admin | Create a diagnostic test |
 | `PUT` | `/api/v1/diagnostic-centres/:centreId/tests/:testId` | Admin | Set a centre's test price and availability |
+| `POST` | `/api/v1/bookings` | User | Create a diagnostic-test booking |
 
 ### Health check
 
@@ -312,6 +313,44 @@ Response:
 }
 ```
 
+### Create a booking
+
+This endpoint requires a valid access token.
+
+```bash
+curl --request POST http://localhost:3000/api/v1/bookings \
+  --header 'Authorization: Bearer <access-token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "centreId": "54a43c3e-51de-464e-9205-9f6d87443688",
+    "testId": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+    "appointmentAt": "2026-10-10T10:30:00.000Z"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "booking": {
+      "id": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
+      "userId": "b565d12c-53b8-4c98-8864-50de03d780fc",
+      "centreId": "54a43c3e-51de-464e-9205-9f6d87443688",
+      "testId": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+      "appointmentAt": "2026-10-10T10:30:00.000Z",
+      "amount": 4000,
+      "status": "PENDING",
+      "createdAt": "2026-09-27T08:00:00.000Z"
+    }
+  }
+}
+```
+
+The authenticated user is taken from the access token. The amount is read from
+the active centre-test offering and stored on the booking so later price changes
+cannot alter it. Clients cannot set the booking owner, amount, or status.
+
 ## Database design
 
 ### Tables
@@ -368,6 +407,8 @@ exact.
   INR and stored as integer paise.
 - Passwords must contain 8–128 characters. Access tokens expire after one hour,
   and refresh tokens are outside the assignment scope.
+- New bookings start as `PENDING`. A later successful payment changes the
+  booking to `CONFIRMED`, while a failed payment changes it to `FAILED`.
 
 ## Future improvements
 
@@ -390,6 +431,11 @@ backend/
 │   │   ├── auth.schema.js
 │   │   ├── auth.service.js
 │   │   └── token.service.js
+│   ├── bookings/
+│   │   ├── bookings.controller.js
+│   │   ├── bookings.routes.js
+│   │   ├── bookings.schema.js
+│   │   └── bookings.service.js
 │   ├── diagnostics/
 │   │   ├── diagnostics.controller.js
 │   │   ├── diagnostics.routes.js
@@ -406,6 +452,7 @@ backend/
 │   └── server.js
 ├── test/
 │   ├── authenticate.test.js
+│   ├── bookings.test.js
 │   ├── diagnostics-management.test.js
 │   ├── diagnostics.test.js
 │   ├── health.test.js
