@@ -16,6 +16,7 @@ export function createRequestLogger({ logger }) {
   return function requestLogger(request, response, next) {
     const requestId = getRequestId(request);
     const startedAt = process.hrtime.bigint();
+    const path = request.path;
 
     request.requestId = requestId;
     response.setHeader('X-Request-Id', requestId);
@@ -26,7 +27,7 @@ export function createRequestLogger({ logger }) {
       logger.info('http.request.completed', {
         requestId,
         method: request.method,
-        path: request.path,
+        path,
         statusCode: response.statusCode,
         durationMs: Number(durationNanoseconds) / 1_000_000,
       });

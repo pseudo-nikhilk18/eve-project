@@ -38,20 +38,49 @@ edge-case handling, tests, and maintainable code.
 
 ## Run locally
 
-### Prerequisites
+### Docker Compose
+
+Docker Compose starts PostgreSQL, applies pending migrations, loads the
+diagnostic catalogue through one-shot containers, and starts the API:
+
+```bash
+docker compose up --build
+```
+
+The API is available at `http://localhost:3000`. PostgreSQL stores its data in
+the named `postgres_data` volume and is not published to a host port. The
+Compose credentials and fallback JWT secret are for local development only.
+Override the secret when needed:
+
+```bash
+JWT_SECRET="$(openssl rand -hex 32)" docker compose up --build
+```
+
+Follow API logs or stop the stack with:
+
+```bash
+docker compose logs --follow api
+docker compose down
+```
+
+`docker compose down` preserves the database volume.
+
+### Manual setup
+
+Prerequisites:
 
 - Node.js
 - npm
 - PostgreSQL
 
-### Install dependencies
+#### Install dependencies
 
 ```bash
 cd backend
 npm install
 ```
 
-### Configure PostgreSQL
+#### Configure PostgreSQL
 
 Create a PostgreSQL database, then copy the example environment file:
 
@@ -66,12 +95,14 @@ with `openssl rand -hex 32`. Apply all pending migrations with:
 
 ```bash
 npm run db:migrate
+npm run db:seed
 ```
 
 Each migration runs in a transaction and is recorded in `schema_migrations`.
-Re-running the command applies only migrations that have not already run.
+Re-running the migration or seed command is safe: applied migrations are
+skipped, and existing seed records are not duplicated or overwritten.
 
-### Start the API
+#### Start the API
 
 ```bash
 cd backend
@@ -479,6 +510,24 @@ payment, and booking rows and rechecks the event state before applying changes.
 | `payments` | Individual payment attempts for a booking |
 | `webhook_events` | Idempotent webhook receipt and retry-processing state |
 
+### Seed data
+
+The seed command creates a representative reference catalogue with five
+centres, eight shared diagnostic tests, and 33 centre-specific offerings. This
+allows centre retrieval and booking flows to be exercised immediately:
+
+| Centre | Location | Available tests and INR prices |
+| --- | --- | --- |
+| EVE Diagnostics | Pune, Maharashtra | Complete Blood Count — 800; Thyroid Profile — 1200; HbA1c — 650; Lipid Profile — 1000; Liver Function Test — 1100; Kidney Function Test — 1050; Vitamin D — 1700 |
+| EVE Diagnostics | Mumbai, Maharashtra | Complete Blood Count — 900; Thyroid Profile — 1300; HbA1c — 700; Lipid Profile — 1100; Liver Function Test — 1200; Vitamin D — 1800; Vitamin B12 — 1500 |
+| EVE Diagnostics | New Delhi, Delhi | Complete Blood Count — 750; Thyroid Profile — 1150; HbA1c — 625; Lipid Profile — 950; Kidney Function Test — 1000; Vitamin B12 — 1400 |
+| EVE Diagnostics | Bengaluru, Karnataka | Complete Blood Count — 850; Thyroid Profile — 1250; HbA1c — 675; Liver Function Test — 1150; Kidney Function Test — 1100; Vitamin D — 1750; Vitamin B12 — 1450 |
+| EVE Diagnostics | Hyderabad, Telangana | Complete Blood Count — 700; Thyroid Profile — 1100; HbA1c — 600; Lipid Profile — 900; Liver Function Test — 1000; Kidney Function Test — 950 |
+
+It does not create users, admin credentials, bookings, payments, or webhook
+events. Existing centre, test, and offering records are left unchanged when the
+seed is run again.
+
 ### Shared tests and centre-specific offerings
 
 A diagnostic test is a reusable medical-test definition, while a centre's
@@ -534,58 +583,63 @@ exact.
 ## Project structure
 
 ```text
-backend/
-├── db/
-│   ├── migrations/
-│   │   └── 001_initial_schema.sql
-│   └── migrate.js
-├── src/
-│   ├── auth/
-│   │   ├── auth.controller.js
-│   │   ├── auth.routes.js
-│   │   ├── auth.schema.js
-│   │   ├── auth.service.js
-│   │   └── token.service.js
-│   ├── bookings/
-│   │   ├── bookings.controller.js
-│   │   ├── bookings.routes.js
-│   │   ├── bookings.schema.js
-│   │   └── bookings.service.js
-│   ├── diagnostics/
-│   │   ├── diagnostics.controller.js
-│   │   ├── diagnostics.routes.js
-│   │   ├── diagnostics.schema.js
-│   │   └── diagnostics.service.js
-│   ├── errors/
-│   │   └── http-error.js
-│   ├── middleware/
-│   │   ├── authenticate.js
-│   │   ├── error-handler.js
-│   │   ├── request-logger.js
-│   │   └── require-role.js
-│   ├── payments/
-│   │   ├── payments.controller.js
-│   │   ├── payments.routes.js
-│   │   ├── payments.schema.js
-│   │   ├── payments.service.js
-│   │   ├── webhook-retry.worker.js
-│   │   └── webhook.service.js
-│   ├── app.js
-│   ├── database.js
-│   ├── logger.js
-│   └── server.js
-├── test/
-│   ├── authenticate.test.js
-│   ├── bookings.test.js
-│   ├── diagnostics-management.test.js
-│   ├── diagnostics.test.js
-│   ├── health.test.js
-│   ├── login.test.js
-│   ├── logging.test.js
-│   ├── payments.test.js
-│   ├── signup.test.js
-│   └── webhook.test.js
-├── .env.example
-├── package.json
-└── package-lock.json
+.
+├── compose.yaml
+└── backend/
+    ├── db/
+    │   ├── migrations/
+    │   │   └── 001_initial_schema.sql
+    │   ├── migrate.js
+    │   └── seed.js
+    ├── src/
+    │   ├── auth/
+    │   │   ├── auth.controller.js
+    │   │   ├── auth.routes.js
+    │   │   ├── auth.schema.js
+    │   │   ├── auth.service.js
+    │   │   └── token.service.js
+    │   ├── bookings/
+    │   │   ├── bookings.controller.js
+    │   │   ├── bookings.routes.js
+    │   │   ├── bookings.schema.js
+    │   │   └── bookings.service.js
+    │   ├── diagnostics/
+    │   │   ├── diagnostics.controller.js
+    │   │   ├── diagnostics.routes.js
+    │   │   ├── diagnostics.schema.js
+    │   │   └── diagnostics.service.js
+    │   ├── errors/
+    │   │   └── http-error.js
+    │   ├── middleware/
+    │   │   ├── authenticate.js
+    │   │   ├── error-handler.js
+    │   │   ├── request-logger.js
+    │   │   └── require-role.js
+    │   ├── payments/
+    │   │   ├── payments.controller.js
+    │   │   ├── payments.routes.js
+    │   │   ├── payments.schema.js
+    │   │   ├── payments.service.js
+    │   │   ├── webhook-retry.worker.js
+    │   │   └── webhook.service.js
+    │   ├── app.js
+    │   ├── database.js
+    │   ├── logger.js
+    │   └── server.js
+    ├── test/
+    │   ├── authenticate.test.js
+    │   ├── bookings.test.js
+    │   ├── diagnostics-management.test.js
+    │   ├── diagnostics.test.js
+    │   ├── health.test.js
+    │   ├── login.test.js
+    │   ├── logging.test.js
+    │   ├── payments.test.js
+    │   ├── signup.test.js
+    │   └── webhook.test.js
+    ├── .dockerignore
+    ├── .env.example
+    ├── Dockerfile
+    ├── package.json
+    └── package-lock.json
 ```

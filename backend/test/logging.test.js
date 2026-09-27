@@ -89,6 +89,16 @@ test('HTTP logging replaces an unsafe request ID', async () => {
   assert.equal(records[0].requestId, response.headers['x-request-id']);
 });
 
+test('HTTP logging preserves the complete mounted API path', async () => {
+  const { logger, records } = createRecordingLogger();
+  const app = createApp({ database: {}, tokenService, logger });
+
+  const response = await request(app).get('/api/v1/not-found');
+
+  assert.equal(response.status, 404);
+  assert.equal(records[0].path, '/api/v1/not-found');
+});
+
 test('unexpected request failures produce a structured error record', () => {
   const { logger, records } = createRecordingLogger();
   const handler = createErrorHandler({ logger });
