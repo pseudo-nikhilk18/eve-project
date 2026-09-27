@@ -103,6 +103,7 @@ the development server.
 | `POST` | `/api/v1/diagnostic-tests` | Admin | Create a diagnostic test |
 | `PUT` | `/api/v1/diagnostic-centres/:centreId/tests/:testId` | Admin | Set a centre's test price and availability |
 | `POST` | `/api/v1/bookings` | User | Create a diagnostic-test booking |
+| `POST` | `/api/v1/payments` | User | Simulate a payment for the user's booking |
 
 ### Health check
 
@@ -351,6 +352,48 @@ The authenticated user is taken from the access token. The amount is read from
 the active centre-test offering and stored on the booking so later price changes
 cannot alter it. Clients cannot set the booking owner, amount, or status.
 
+### Process a simulated payment
+
+This endpoint requires a valid access token belonging to the booking owner.
+`simulateOutcome` is explicit so both mock outcomes can be tested reliably.
+
+```bash
+curl --request POST http://localhost:3000/api/v1/payments \
+  --header 'Authorization: Bearer <access-token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "bookingId": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
+    "simulateOutcome": "SUCCESS"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "payment": {
+      "id": "690028f1-c847-4925-a311-fdd5b576115b",
+      "bookingId": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
+      "providerReference": "mock_24c37900-a776-4a70-a8a9-4efb4fcc2dcc",
+      "attemptNumber": 1,
+      "amount": 4000,
+      "status": "SUCCESS",
+      "createdAt": "2026-09-27T08:05:00.000Z"
+    },
+    "booking": {
+      "id": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
+      "status": "CONFIRMED"
+    }
+  }
+}
+```
+
+A successful payment changes the booking to `CONFIRMED`; a failed payment
+changes it to `FAILED`. Failed bookings can be retried, while `CONFIRMED` and
+`CANCELLED` bookings reject further payment attempts. Payment creation and the
+booking-status update run in one database transaction.
+
 ## Database design
 
 ### Tables
@@ -447,6 +490,11 @@ backend/
 │   │   ├── authenticate.js
 │   │   ├── error-handler.js
 │   │   └── require-role.js
+│   ├── payments/
+│   │   ├── payments.controller.js
+│   │   ├── payments.routes.js
+│   │   ├── payments.schema.js
+│   │   └── payments.service.js
 │   ├── app.js
 │   ├── database.js
 │   └── server.js
@@ -457,6 +505,7 @@ backend/
 │   ├── diagnostics.test.js
 │   ├── health.test.js
 │   ├── login.test.js
+│   ├── payments.test.js
 │   └── signup.test.js
 ├── .env.example
 ├── package.json
