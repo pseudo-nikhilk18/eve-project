@@ -1,5 +1,9 @@
-import { createPaymentSchema } from './payments.schema.js';
+import {
+  createPaymentSchema,
+  paymentWebhookSchema,
+} from './payments.schema.js';
 import { processSimulatedPayment } from './payments.service.js';
+import { processPaymentWebhook } from './webhook.service.js';
 
 export function createPaymentsController({ database }) {
   return {
@@ -12,6 +16,13 @@ export function createPaymentsController({ database }) {
       });
 
       response.status(201).json({ data: result });
+    },
+
+    async webhook(request, response) {
+      const input = paymentWebhookSchema.parse(request.body);
+      const result = await processPaymentWebhook({ database, ...input });
+
+      response.json({ data: result });
     },
   };
 }

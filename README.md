@@ -104,6 +104,7 @@ the development server.
 | `PUT` | `/api/v1/diagnostic-centres/:centreId/tests/:testId` | Admin | Set a centre's test price and availability |
 | `POST` | `/api/v1/bookings` | User | Create a diagnostic-test booking |
 | `POST` | `/api/v1/payments` | User | Simulate a payment for the user's booking |
+| `POST` | `/api/v1/payments/webhook` | Simulated provider | Apply an idempotent payment-status event |
 
 ### Health check
 
@@ -394,6 +395,48 @@ changes it to `FAILED`. Failed bookings can be retried, while `CONFIRMED` and
 `CANCELLED` bookings reject further payment attempts. Payment creation and the
 booking-status update run in one database transaction.
 
+### Process a payment webhook
+
+The webhook represents a callback from the simulated payment provider and does
+not use a user access token.
+
+```bash
+curl --request POST http://localhost:3000/api/v1/payments/webhook \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "eventId": "event_123",
+    "providerReference": "mock_24c37900-a776-4a70-a8a9-4efb4fcc2dcc",
+    "status": "SUCCESS"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "event": {
+      "eventId": "event_123",
+      "processingStatus": "PROCESSED",
+      "duplicate": false
+    },
+    "payment": {
+      "id": "690028f1-c847-4925-a311-fdd5b576115b",
+      "status": "SUCCESS"
+    },
+    "booking": {
+      "id": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
+      "status": "CONFIRMED"
+    }
+  }
+}
+```
+
+`eventId` is unique. Repeating the same event returns `200` with `duplicate`
+set to `true` and does not apply the payment or booking update again. Reusing an
+event ID with different payment data returns `409`. Event recording, payment
+updates, and booking updates run in one database transaction.
+
 ## Database design
 
 ### Tables
@@ -458,6 +501,7 @@ exact.
 - Add email verification and password-reset flows.
 - Add refresh-token rotation and revocation.
 - Replace the simulated payment service with a real payment provider.
+- Verify cryptographic signatures on webhooks from a real payment provider.
 
 ## Project structure
 
@@ -494,7 +538,8 @@ backend/
 │   │   ├── payments.controller.js
 │   │   ├── payments.routes.js
 │   │   ├── payments.schema.js
-│   │   └── payments.service.js
+│   │   ├── payments.service.js
+│   │   └── webhook.service.js
 │   ├── app.js
 │   ├── database.js
 │   └── server.js
@@ -506,7 +551,8 @@ backend/
 │   ├── health.test.js
 │   ├── login.test.js
 │   ├── payments.test.js
-│   └── signup.test.js
+│   ├── signup.test.js
+│   └── webhook.test.js
 ├── .env.example
 ├── package.json
 └── package-lock.json

@@ -6,3 +6,11 @@ export const createPaymentSchema = z
     simulateOutcome: z.enum(['SUCCESS', 'FAILED']),
   })
   .strict();
+
+export const paymentWebhookSchema = z
+  .object({
+    eventId: z.string().trim().min(1).max(120),
+    providerReference: z.string().trim().min(1).max(120),
+    status: z.enum(['SUCCESS', 'FAILED']),
+  })
+  .strict();

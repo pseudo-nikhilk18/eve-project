@@ -7,6 +7,7 @@ export function createPaymentsRouter({ database, tokenService }) {
   const controller = createPaymentsController({ database });
   const authenticate = createAuthenticate({ tokenService });
 
+  router.post('/webhook', controller.webhook);
   router.post('/', authenticate, controller.create);
 
   return router;
