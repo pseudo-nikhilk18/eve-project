@@ -4,35 +4,27 @@ A backend service for booking diagnostic tests and processing simulated
 payments. The implementation emphasizes API design, database integrity,
 edge-case handling, tests, and maintainable code.
 
-## Assignment scope
+## Requirements
 
-### Required capabilities
+### Core capabilities
 
-- [x] User signup and login
-- [x] JWT-based authentication
-- [ ] Request validation
-- [ ] Diagnostic centre and test management
-- [ ] Diagnostic centre and test retrieval
-- [ ] Authenticated diagnostic-test bookings
-- [ ] Simulated successful and failed payments
-- [ ] Idempotent payment-status webhooks
-- [ ] Validation, authorization, and failure edge cases
+- User signup and login
+- JWT-based authentication
+- Request validation
+- Diagnostic centre and test management
+- Diagnostic centre and test retrieval
+- Authenticated diagnostic-test bookings
+- Simulated successful and failed payments
+- Idempotent payment-status webhooks
+- Validation, authorization, and failure edge cases
 
-### Chosen engineering additions
+### Delivery and quality
 
-- [ ] Docker and Docker Compose
-- [ ] Automated unit and integration tests
-- [ ] OpenAPI documentation
-- [ ] Structured application logging
-- [ ] Bounded retry handling for webhook processing
-
-## Current status
-
-The Express application exposes a tested health endpoint, user signup, login,
-and JWT authentication middleware. Application configuration is separated from
-network startup so integration tests can run without occupying the development
-port. The initial PostgreSQL schema and transactional migration runner are
-defined.
+- Docker and Docker Compose
+- Automated unit and integration tests
+- OpenAPI documentation
+- Structured application logging
+- Bounded retry handling for webhook processing
 
 ## Technology
 
@@ -50,17 +42,14 @@ defined.
 
 - Node.js
 - npm
+- PostgreSQL
 
-### Start the API
+### Install dependencies
 
 ```bash
 cd backend
 npm install
-npm run dev
 ```
-
-The API listens on `http://localhost:3000` by default. Set `PORT` to use a
-different port.
 
 ### Configure PostgreSQL
 
@@ -82,6 +71,16 @@ npm run db:migrate
 Each migration runs in a transaction and is recorded in `schema_migrations`.
 Re-running the command applies only migrations that have not already run.
 
+### Start the API
+
+```bash
+cd backend
+npm run dev
+```
+
+The API listens on `http://localhost:3000` by default. Set `PORT` to use a
+different port.
+
 ### Run tests
 
 ```bash
@@ -99,6 +98,10 @@ the development server.
 | `GET` | `/health` | No | Confirm that the API process is running |
 | `POST` | `/api/v1/auth/signup` | No | Create a user account |
 | `POST` | `/api/v1/auth/login` | No | Authenticate and receive an access token |
+| `GET` | `/api/v1/diagnostic-centres` | No | List active centres, tests, and prices |
+| `POST` | `/api/v1/diagnostic-centres` | Admin | Create a diagnostic centre |
+| `POST` | `/api/v1/diagnostic-tests` | Admin | Create a diagnostic test |
+| `PUT` | `/api/v1/diagnostic-centres/:centreId/tests/:testId` | Admin | Set a centre's test price and availability |
 
 ### Health check
 
@@ -181,6 +184,134 @@ the `Authorization: Bearer <token>` header. Unknown emails and incorrect
 passwords return the same response so the endpoint does not reveal whether an
 account exists.
 
+To exercise admin-only endpoints locally, promote an existing account in
+PostgreSQL, then log in again to receive a token containing the updated role:
+
+```sql
+UPDATE users
+SET role = 'ADMIN'
+WHERE email = 'asha@example.com';
+```
+
+### List diagnostic centres
+
+```bash
+curl http://localhost:3000/api/v1/diagnostic-centres
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "centres": [
+      {
+        "id": "54a43c3e-51de-464e-9205-9f6d87443688",
+        "name": "EVE Diagnostics",
+        "location": "Pune",
+        "tests": [
+          {
+            "id": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+            "name": "Complete Blood Count",
+            "price": 500
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Only active centres, available centre-test offerings, and active diagnostic
+tests are returned. A centre with no available tests has an empty `tests`
+array. Prices returned by the API are in INR.
+
+### Create a diagnostic centre
+
+This endpoint requires an admin access token.
+
+```bash
+curl --request POST http://localhost:3000/api/v1/diagnostic-centres \
+  --header 'Authorization: Bearer <access-token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "name": "EVE Diagnostics",
+    "location": "Pune"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "centre": {
+      "id": "54a43c3e-51de-464e-9205-9f6d87443688",
+      "name": "EVE Diagnostics",
+      "location": "Pune",
+      "tests": []
+    }
+  }
+}
+```
+
+### Create a diagnostic test
+
+This endpoint requires an admin access token.
+
+```bash
+curl --request POST http://localhost:3000/api/v1/diagnostic-tests \
+  --header 'Authorization: Bearer <access-token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "name": "Complete Blood Count"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "test": {
+      "id": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+      "name": "Complete Blood Count"
+    }
+  }
+}
+```
+
+### Add a test to a diagnostic centre
+
+This endpoint requires an admin access token. `price` is supplied and returned
+in INR. Repeating the request updates the price and marks the offering as
+available.
+
+```bash
+curl --request PUT \
+  http://localhost:3000/api/v1/diagnostic-centres/54a43c3e-51de-464e-9205-9f6d87443688/tests/c9c9f963-1199-49a0-bc20-f42771b6f7cf \
+  --header 'Authorization: Bearer <access-token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "price": 4000
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "offering": {
+      "centreId": "54a43c3e-51de-464e-9205-9f6d87443688",
+      "testId": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+      "price": 4000,
+      "isAvailable": true
+    }
+  }
+}
+```
+
 ## Database design
 
 ### Tables
@@ -238,6 +369,12 @@ exact.
 - Passwords must contain 8–128 characters. Access tokens expire after one hour,
   and refresh tokens are outside the assignment scope.
 
+## Future improvements
+
+- Add email verification and password-reset flows.
+- Add refresh-token rotation and revocation.
+- Replace the simulated payment service with a real payment provider.
+
 ## Project structure
 
 ```text
@@ -253,16 +390,24 @@ backend/
 │   │   ├── auth.schema.js
 │   │   ├── auth.service.js
 │   │   └── token.service.js
+│   ├── diagnostics/
+│   │   ├── diagnostics.controller.js
+│   │   ├── diagnostics.routes.js
+│   │   ├── diagnostics.schema.js
+│   │   └── diagnostics.service.js
 │   ├── errors/
 │   │   └── http-error.js
 │   ├── middleware/
 │   │   ├── authenticate.js
-│   │   └── error-handler.js
+│   │   ├── error-handler.js
+│   │   └── require-role.js
 │   ├── app.js
 │   ├── database.js
 │   └── server.js
 ├── test/
 │   ├── authenticate.test.js
+│   ├── diagnostics-management.test.js
+│   ├── diagnostics.test.js
 │   ├── health.test.js
 │   ├── login.test.js
 │   └── signup.test.js
