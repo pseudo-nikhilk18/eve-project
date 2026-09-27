@@ -4,6 +4,7 @@ import { createBookingsRouter } from './bookings/bookings.routes.js';
 import { createDiagnosticsRouter } from './diagnostics/diagnostics.routes.js';
 import { silentLogger } from './logger.js';
 import { createErrorHandler } from './middleware/error-handler.js';
+import { notFound } from './middleware/not-found.js';
 import { createRequestLogger } from './middleware/request-logger.js';
 import { createPaymentsRouter } from './payments/payments.routes.js';
 
@@ -29,6 +30,7 @@ export function createApp({ database, tokenService, logger = silentLogger } = {}
   app.use('/api/v1', createDiagnosticsRouter({ database, tokenService }));
   app.use('/api/v1/bookings', createBookingsRouter({ database, tokenService }));
   app.use('/api/v1/payments', createPaymentsRouter({ database, tokenService }));
+  app.use(notFound);
   app.use(createErrorHandler({ logger }));
 
   return app;
