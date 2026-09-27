@@ -1,13 +1,7 @@
-import express from 'express';
+import { createApp } from './app.js';
 
-const app = express();
 const port = process.env.PORT || 3000;
-
-app.use(express.json());
-
-app.get('/health', (_request, response) => {
-  response.json({ status: 'Backend is up' });
-});
+const app = createApp();
 
 app.listen(port, (error) => {
   if (error) {

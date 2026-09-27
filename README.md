@@ -28,8 +28,10 @@ edge-case handling, tests, and maintainable code.
 
 ## Current status
 
-The Express application exposes a health endpoint. The initial PostgreSQL schema
-and transactional migration runner are defined; feature APIs have not been
+The Express application exposes a tested health endpoint. Application
+configuration is separated from network startup so integration tests can run
+without occupying the development port. The initial PostgreSQL schema and
+transactional migration runner are defined; feature APIs have not been
 implemented yet.
 
 ## Technology
@@ -77,6 +79,16 @@ npm run db:migrate
 
 Each migration runs in a transaction and is recorded in `schema_migrations`.
 Re-running the command applies only migrations that have not already run.
+
+### Run tests
+
+```bash
+cd backend
+npm test
+```
+
+Integration tests exercise the Express application directly without starting
+the development server.
 
 ## API endpoints
 
@@ -161,8 +173,12 @@ backend/
 │   ├── migrations/
 │   │   └── 001_initial_schema.sql
 │   └── migrate.js
+├── src/
+│   ├── app.js
+│   └── server.js
+├── test/
+│   └── health.test.js
 ├── .env.example
-├── index.js
 ├── package.json
 └── package-lock.json
 ```
