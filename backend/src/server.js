@@ -1,18 +1,22 @@
 import { createApp } from './app.js';
 import { createTokenService } from './auth/token.service.js';
 import { createDatabasePool } from './database.js';
+import { startWebhookRetryWorker } from './payments/webhook-retry.worker.js';
 
 const port = process.env.PORT || 3000;
 const tokenService = createTokenService({ secret: process.env.JWT_SECRET });
 const database = createDatabasePool();
 const app = createApp({ database, tokenService });
+let webhookRetryWorker;
 
 const server = app.listen(port, () => {
+  webhookRetryWorker = startWebhookRetryWorker({ database });
   console.log(`API listening on port ${port}`);
 });
 
 server.once('error', async (error) => {
   console.error('API failed to start', error);
+  await webhookRetryWorker?.stop();
   await database.end();
   process.exitCode = 1;
 });
@@ -26,8 +30,10 @@ async function shutdown(signal) {
 
   isShuttingDown = true;
   console.log(`${signal} received, closing API`);
+  const retryWorkerStopped = webhookRetryWorker?.stop() ?? Promise.resolve();
 
   server.close(async (error) => {
+    await retryWorkerStopped;
     await database.end();
 
     if (error) {

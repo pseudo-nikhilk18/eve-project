@@ -432,10 +432,22 @@ Response:
 }
 ```
 
-`eventId` is unique. Repeating the same event returns `200` with `duplicate`
-set to `true` and does not apply the payment or booking update again. Reusing an
-event ID with different payment data returns `409`. Event recording, payment
-updates, and booking updates run in one database transaction.
+`eventId` is unique. Repeating an already processed event returns `200` with
+`duplicate` set to `true` and does not apply the payment or booking update
+again. Reusing an event ID with different payment data returns `409`.
+
+The event receipt is committed before its payment update is attempted. If an
+unexpected processing failure occurs, the endpoint returns `202` with
+`processingStatus` set to `RETRY_PENDING`, together with `attemptCount` and
+`nextAttemptAt`. A database-backed worker retries after 5 seconds and then 30
+seconds. Processing stops after three total attempts and marks the event
+`EXHAUSTED`. Validation errors and payment or booking status conflicts are
+terminal and are not retried.
+
+Each processing attempt updates the webhook event, payment, and booking in one
+transaction. Pending retries remain in PostgreSQL, so they survive an API
+restart. Concurrent deliveries remain safe because processing locks the event,
+payment, and booking rows and rechecks the event state before applying changes.
 
 ## Database design
 
@@ -539,6 +551,7 @@ backend/
 │   │   ├── payments.routes.js
 │   │   ├── payments.schema.js
 │   │   ├── payments.service.js
+│   │   ├── webhook-retry.worker.js
 │   │   └── webhook.service.js
 │   ├── app.js
 │   ├── database.js

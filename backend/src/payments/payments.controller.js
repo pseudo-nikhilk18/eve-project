@@ -21,8 +21,10 @@ export function createPaymentsController({ database }) {
     async webhook(request, response) {
       const input = paymentWebhookSchema.parse(request.body);
       const result = await processPaymentWebhook({ database, ...input });
+      const statusCode =
+        result.event.processingStatus === 'PROCESSED' ? 200 : 202;
 
-      response.json({ data: result });
+      response.status(statusCode).json({ data: result });
     },
   };
 }
