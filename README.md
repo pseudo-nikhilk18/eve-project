@@ -8,8 +8,8 @@ edge-case handling, tests, and maintainable code.
 
 ### Required capabilities
 
-- [ ] User signup and login
-- [ ] JWT-based authentication
+- [x] User signup and login
+- [x] JWT-based authentication
 - [ ] Request validation
 - [ ] Diagnostic centre and test management
 - [ ] Diagnostic centre and test retrieval
@@ -28,11 +28,11 @@ edge-case handling, tests, and maintainable code.
 
 ## Current status
 
-The Express application exposes a tested health endpoint. Application
-configuration is separated from network startup so integration tests can run
-without occupying the development port. The initial PostgreSQL schema and
-transactional migration runner are defined; feature APIs have not been
-implemented yet.
+The Express application exposes a tested health endpoint, user signup, login,
+and JWT authentication middleware. Application configuration is separated from
+network startup so integration tests can run without occupying the development
+port. The initial PostgreSQL schema and transactional migration runner are
+defined.
 
 ## Technology
 
@@ -41,6 +41,7 @@ implemented yet.
 - Express.js
 - PostgreSQL
 - `pg` for PostgreSQL access
+- `jsonwebtoken` for access-token signing and verification
 - Plain SQL migrations
 
 ## Run locally
@@ -70,8 +71,9 @@ cd backend
 cp .env.example .env
 ```
 
-Update `DATABASE_URL` in `.env` if the local connection details differ. Apply
-all pending migrations with:
+Update `DATABASE_URL` in `.env` if the local connection details differ. Replace
+`JWT_SECRET` with a private random value; for example, one can be generated
+with `openssl rand -hex 32`. Apply all pending migrations with:
 
 ```bash
 npm run db:migrate
@@ -95,6 +97,8 @@ the development server.
 | Method | Path | Authentication | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/health` | No | Confirm that the API process is running |
+| `POST` | `/api/v1/auth/signup` | No | Create a user account |
+| `POST` | `/api/v1/auth/login` | No | Authenticate and receive an access token |
 
 ### Health check
 
@@ -109,6 +113,73 @@ Response:
   "status": "ok"
 }
 ```
+
+### Create an account
+
+```bash
+curl --request POST http://localhost:3000/api/v1/auth/signup \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "fullName": "Asha Rao",
+    "email": "asha@example.com",
+    "password": "secure-password"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "user": {
+      "id": "b565d12c-53b8-4c98-8864-50de03d780fc",
+      "fullName": "Asha Rao",
+      "email": "asha@example.com",
+      "role": "USER",
+      "createdAt": "2026-09-27T08:00:00.000Z"
+    }
+  }
+}
+```
+
+The signup endpoint accepts only `fullName`, `email`, and `password`. Email
+addresses are normalized to lowercase, passwords are stored as Argon2id hashes,
+and public signup cannot assign administrative privileges.
+
+### Log in
+
+```bash
+curl --request POST http://localhost:3000/api/v1/auth/login \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "email": "asha@example.com",
+    "password": "secure-password"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "user": {
+      "id": "b565d12c-53b8-4c98-8864-50de03d780fc",
+      "fullName": "Asha Rao",
+      "email": "asha@example.com",
+      "role": "USER",
+      "createdAt": "2026-09-27T08:00:00.000Z"
+    },
+    "accessToken": "<signed-jwt>",
+    "tokenType": "Bearer",
+    "expiresIn": 3600
+  }
+}
+```
+
+Access tokens expire after one hour. Protected endpoints accept the token in
+the `Authorization: Bearer <token>` header. Unknown emails and incorrect
+passwords return the same response so the endpoint does not reveal whether an
+account exists.
 
 ## Database design
 
@@ -164,6 +235,8 @@ exact.
 - Payments are simulated. No real payment provider or credentials will be used.
 - The assignment does not specify a currency. All monetary values are treated as
   INR and stored as integer paise.
+- Passwords must contain 8–128 characters. Access tokens expire after one hour,
+  and refresh tokens are outside the assignment scope.
 
 ## Project structure
 
@@ -174,10 +247,25 @@ backend/
 │   │   └── 001_initial_schema.sql
 │   └── migrate.js
 ├── src/
+│   ├── auth/
+│   │   ├── auth.controller.js
+│   │   ├── auth.routes.js
+│   │   ├── auth.schema.js
+│   │   ├── auth.service.js
+│   │   └── token.service.js
+│   ├── errors/
+│   │   └── http-error.js
+│   ├── middleware/
+│   │   ├── authenticate.js
+│   │   └── error-handler.js
 │   ├── app.js
+│   ├── database.js
 │   └── server.js
 ├── test/
-│   └── health.test.js
+│   ├── authenticate.test.js
+│   ├── health.test.js
+│   ├── login.test.js
+│   └── signup.test.js
 ├── .env.example
 ├── package.json
 └── package-lock.json
