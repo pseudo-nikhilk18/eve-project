@@ -7,6 +7,8 @@ export function createBookingsRouter({ database, tokenService }) {
   const controller = createBookingsController({ database });
   const authenticate = createAuthenticate({ tokenService });
 
+  router.get('/', authenticate, controller.list);
+  router.get('/:bookingId', authenticate, controller.get);
   router.post('/', authenticate, controller.create);
 
   return router;

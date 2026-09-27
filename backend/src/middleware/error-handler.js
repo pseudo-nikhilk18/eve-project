@@ -13,6 +13,15 @@ export function createErrorHandler({ logger }) {
       });
     }
 
+    if (error.type === 'entity.too.large') {
+      return response.status(413).json({
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: 'Request body exceeds the 100 KB limit',
+        },
+      });
+    }
+
     if (error instanceof ZodError) {
       return response.status(400).json({
         error: {

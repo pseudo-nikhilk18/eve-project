@@ -78,6 +78,45 @@ test('POST /api/v1/auth/signup rejects invalid input', async () => {
   assert.equal(queryCalled, false);
 });
 
+test('POST /api/v1/auth/signup rejects PostgreSQL null characters', async () => {
+  let queryCalled = false;
+  const database = {
+    async query() {
+      queryCalled = true;
+    },
+  };
+
+  const response = await request(createApp({ database, tokenService }))
+    .post('/api/v1/auth/signup')
+    .send({
+      ...validSignup,
+      fullName: 'Bad\u0000Name',
+    });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  assert.equal(queryCalled, false);
+});
+
+test('POST /api/v1/auth/signup rejects oversized JSON', async () => {
+  const response = await request(
+    createApp({ database: {}, tokenService }),
+  )
+    .post('/api/v1/auth/signup')
+    .send({
+      ...validSignup,
+      fullName: 'A'.repeat(102_400),
+    });
+
+  assert.equal(response.status, 413);
+  assert.deepEqual(response.body, {
+    error: {
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'Request body exceeds the 100 KB limit',
+    },
+  });
+});
+
 test('POST /api/v1/auth/signup rejects malformed JSON', async () => {
   const response = await request(createApp({ database: {}, tokenService }))
     .post('/api/v1/auth/signup')

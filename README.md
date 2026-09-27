@@ -10,14 +10,14 @@ transactional state changes, and predictable JSON contracts.
 - User signup and login with Argon2id password hashing and JWT access tokens
 - Public retrieval of diagnostic centres, available tests, and INR prices
 - Admin-only management of centres, test definitions, and centre offerings
-- Authenticated bookings with server-controlled ownership, amount, and status
+- Authenticated booking creation and user-scoped booking retrieval
 - Deterministic successful and failed payment simulation
 - Idempotent payment-status webhooks with conflict detection
 - Durable, bounded retry handling for unexpected webhook-processing failures
 - Strict request validation and consistent authorization and error responses
 - Structured JSON logs with request correlation IDs
 - Transactional SQL migrations and idempotent reference-data seeding
-- Automated request, service, edge-case, and concurrency-focused tests
+- Automated request, service, edge-case, and PostgreSQL integration tests
 - Docker image and Compose orchestration for PostgreSQL, migration, seed, and API services
 
 ## Architecture
@@ -62,12 +62,13 @@ the parts of the system where correctness depends on them.
 | Zod | Strict request-body and path-parameter validation |
 | Argon2 | Password hashing using Argon2id |
 | `jsonwebtoken` | HS256 access-token signing and verification |
-| Node test runner + Supertest | Service and HTTP contract tests |
+| Node test runner + Supertest | Isolated HTTP tests and real-PostgreSQL integration tests |
 | Docker + Docker Compose | Reproducible API and database environment |
 
-The container image uses Node.js 22 on Debian slim. Application dependencies
-are installed with `npm ci --omit=dev`, and the API runs as the non-root
-`node` user.
+The container image uses Node.js 22 on Debian slim. Its production target
+installs application dependencies with `npm ci --omit=dev` and runs as the
+non-root `node` user. A separate test target includes the integration suite and
+its development-only test dependency.
 
 ## Key design decisions
 
@@ -75,10 +76,11 @@ are installed with `npm ci --omit=dev`, and the API runs as the non-root
 | --- | --- |
 | Separate tests from centre offerings | A diagnostic test is a reusable definition; `centre_tests` represents availability and centre-specific pricing without duplicating test records. |
 | Derive booking fields on the server | The JWT supplies the user, the selected offering supplies the amount, and the server assigns `PENDING`; clients cannot forge ownership, price, or initial status. |
+| Scope booking reads to the authenticated user | Booking queries include the JWT user ID, and inaccessible booking IDs return `404` without exposing another patient's records. |
 | Expose INR and store integer paise | API consumers use values such as `800`; PostgreSQL stores `80000` to avoid floating-point errors in financial records. |
 | Snapshot booking and payment amounts | Later price changes cannot rewrite an existing booking or payment history. |
 | Keep public signup non-administrative | Signup always creates a `USER`. Admin access is granted outside the public API, avoiding a public privilege-escalation path. |
-| Use database constraints as a second line of validation | Unique, foreign-key, check, and partial-index constraints protect invariants even under concurrent requests. |
+| Use database constraints as a second line of validation | Unique, foreign-key, check, and partial-index constraints protect invariants at the persistence layer. |
 | Lock rows during payment and webhook transitions | `FOR UPDATE` serializes competing updates so a booking cannot receive inconsistent final states. |
 | Persist webhook receipt before processing | An accepted event survives a processing failure or API restart and can be retried from PostgreSQL. |
 | Use bounded database-backed retries | Unexpected webhook failures are attempted at most three times, after 5-second and 30-second delays, without introducing Redis for this assignment-sized service. |
@@ -186,7 +188,8 @@ Authorization: Bearer <access-token>
 ```
 
 API prices and amounts are numeric INR values. Timestamps are ISO 8601 values
-with a timezone offset. Unknown request fields are rejected.
+with a timezone offset. Unknown request fields are rejected. JSON request
+bodies are limited to 100 KB.
 
 ### Endpoint summary
 
@@ -199,6 +202,8 @@ with a timezone offset. Unknown request fields are rejected.
 | `POST` | `/api/v1/diagnostic-centres` | Admin | Create a diagnostic centre |
 | `POST` | `/api/v1/diagnostic-tests` | Admin | Create a diagnostic test definition |
 | `PUT` | `/api/v1/diagnostic-centres/:centreId/tests/:testId` | Admin | Create or re-enable an offering and set its price |
+| `GET` | `/api/v1/bookings` | User/Admin | List bookings owned by the authenticated account |
+| `GET` | `/api/v1/bookings/:bookingId` | Booking owner | Retrieve one owned booking |
 | `POST` | `/api/v1/bookings` | User/Admin | Create a booking owned by the authenticated account |
 | `POST` | `/api/v1/payments` | Booking owner | Simulate a successful or failed payment attempt |
 | `POST` | `/api/v1/payments/webhook` | Simulated provider | Apply an idempotent payment-status event |
@@ -295,7 +300,8 @@ Response:
 ```
 
 Access tokens expire after one hour. Unknown emails and incorrect passwords
-both return `401` without revealing whether an account exists.
+return the same `401` response, and both paths perform Argon2 verification
+work.
 
 #### List diagnostic centres
 
@@ -428,9 +434,10 @@ Response:
 }
 ```
 
-`price` is supplied and returned in INR. Repeating the request updates the
-price and marks the offering as available. An unknown centre or test returns
-`404`.
+`price` is supplied and returned in INR and cannot exceed `21474836.47`, the
+largest value supported by the integer-paise database column. Repeating the
+request updates the price and marks the offering as available. An unknown
+centre or test returns `404`.
 
 #### Create a booking
 
@@ -455,12 +462,20 @@ Response:
     "booking": {
       "id": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
       "userId": "b565d12c-53b8-4c98-8864-50de03d780fc",
-      "centreId": "54a43c3e-51de-464e-9205-9f6d87443688",
-      "testId": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+      "centre": {
+        "id": "54a43c3e-51de-464e-9205-9f6d87443688",
+        "name": "EVE Diagnostics",
+        "location": "Pune, Maharashtra"
+      },
+      "test": {
+        "id": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+        "name": "Complete Blood Count"
+      },
       "appointmentAt": "2030-10-10T10:30:00.000Z",
       "amount": 800,
       "status": "PENDING",
-      "createdAt": "2026-09-27T08:00:00.000Z"
+      "createdAt": "2026-09-27T08:00:00.000Z",
+      "updatedAt": "2026-09-27T08:00:00.000Z"
     }
   }
 }
@@ -471,6 +486,91 @@ active centre-test offering and snapshotted on the booking; clients cannot set
 the owner, amount, or initial status. An unavailable offering returns `404`, a
 duplicate active booking returns `409`, and an invalid or past appointment
 returns `400`.
+
+#### List the authenticated user's bookings
+
+`GET /api/v1/bookings` — Authenticated — Success: `200 OK`
+
+```bash
+curl "$BASE_URL/api/v1/bookings" \
+  --header 'Authorization: Bearer <access-token>'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "bookings": [
+      {
+        "id": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
+        "userId": "b565d12c-53b8-4c98-8864-50de03d780fc",
+        "centre": {
+          "id": "54a43c3e-51de-464e-9205-9f6d87443688",
+          "name": "EVE Diagnostics",
+          "location": "Pune, Maharashtra"
+        },
+        "test": {
+          "id": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+          "name": "Complete Blood Count"
+        },
+        "appointmentAt": "2030-10-10T10:30:00.000Z",
+        "amount": 800,
+        "status": "CONFIRMED",
+        "createdAt": "2026-09-27T08:00:00.000Z",
+        "updatedAt": "2026-09-27T08:05:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+Bookings are ordered newest first. An account with no bookings receives an
+empty `bookings` array. Records owned by other users are never returned.
+
+#### Retrieve a booking
+
+`GET /api/v1/bookings/:bookingId` — Booking owner — Success: `200 OK`
+
+Path parameter:
+
+- `bookingId`: booking UUID
+
+```bash
+curl \
+  "$BASE_URL/api/v1/bookings/18fd3f4c-f1c0-4b33-882b-5d6d3e224815" \
+  --header 'Authorization: Bearer <access-token>'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "booking": {
+      "id": "18fd3f4c-f1c0-4b33-882b-5d6d3e224815",
+      "userId": "b565d12c-53b8-4c98-8864-50de03d780fc",
+      "centre": {
+        "id": "54a43c3e-51de-464e-9205-9f6d87443688",
+        "name": "EVE Diagnostics",
+        "location": "Pune, Maharashtra"
+      },
+      "test": {
+        "id": "c9c9f963-1199-49a0-bc20-f42771b6f7cf",
+        "name": "Complete Blood Count"
+      },
+      "appointmentAt": "2030-10-10T10:30:00.000Z",
+      "amount": 800,
+      "status": "CONFIRMED",
+      "createdAt": "2026-09-27T08:00:00.000Z",
+      "updatedAt": "2026-09-27T08:05:00.000Z"
+    }
+  }
+}
+```
+
+An invalid booking ID returns `400`. An unknown booking or a booking owned by
+another account returns the same `404 BOOKING_NOT_FOUND` response.
 
 #### Process a simulated payment
 
@@ -578,7 +678,8 @@ Expected failures use HTTP status codes and machine-readable error codes:
 
 The API distinguishes validation errors, missing or invalid authentication,
 forbidden ownership or roles, missing resources, duplicate/conflicting state,
-invalid JSON, unknown routes, and unexpected server errors.
+invalid JSON, oversized request bodies, unknown routes, and unexpected server
+errors.
 
 ## Domain and database design
 
@@ -654,20 +755,56 @@ Example request log:
 
 ## Testing
 
+### Isolated test suite
+
 ```bash
 cd backend
 npm test
 ```
 
-The suite uses Node's test runner and Supertest. Request-level tests exercise
-the Express application without opening the development server, while
+The 63-test suite uses Node's test runner and Supertest. Request-level tests
+exercise the Express application without opening the development server, while
 controlled database doubles isolate service behavior and failure paths.
 
-Coverage includes authentication, authorization, strict validation, duplicate
-resources, booking ownership and amount derivation, unavailable offerings,
-payment success/failure/retry behavior, idempotent and conflicting webhooks,
-bounded retry scheduling and exhaustion, structured logging, request
-correlation, and consistent JSON 404 handling.
+Coverage includes authentication, authorization, strict validation, request
+size limits, duplicate resources, booking creation and user-scoped retrieval,
+unavailable offerings, payment success/failure/retry behavior, idempotent and
+conflicting webhooks, bounded retry scheduling and exhaustion, structured
+logging, request correlation, and consistent JSON 404 handling.
+
+### PostgreSQL integration suite
+
+The integration suite creates a randomly named temporary database, runs the
+actual migration and seed code, exercises the API through Supertest, and drops
+the database afterward. It does not modify the development `eve` database.
+
+Run it with Docker Compose from the repository root:
+
+```bash
+docker compose --profile test up \
+  --build \
+  --abort-on-container-exit \
+  --exit-code-from integration-test \
+  integration-test
+docker compose down
+```
+
+The `integration-test` service is profile-gated and is not started by the
+normal `docker compose up` command.
+
+To run against an existing local PostgreSQL installation, provide an
+administrator connection that can create and drop temporary databases:
+
+```bash
+cd backend
+TEST_DATABASE_ADMIN_URL=postgresql://postgres:postgres@localhost:5432/postgres \
+  npm run test:integration
+```
+
+Adjust the role and password for the local PostgreSQL installation. The three
+integration tests verify migration and seed idempotency, database enforcement
+of duplicate active bookings, booking ownership through real joins, and
+idempotent repeated webhook delivery through real transactions and indexes.
 
 ## Assumptions and boundaries
 
@@ -693,12 +830,14 @@ correlation, and consistent JSON 404 handling.
 
 ## Improvements with more time
 
-- Add booking retrieval, cancellation, and rescheduling endpoints with explicit
-  rules for which booking states can transition.
+- Add login rate limiting to bound the CPU cost of repeated attempts while
+  retaining Argon2 verification for both known and unknown email addresses.
+- Add booking cancellation and rescheduling endpoints with explicit rules for
+  which booking states can transition.
 - Extend catalogue administration with update and deactivate operations for
   centres, tests, and centre-specific offerings.
-- Add filtering and pagination to catalogue retrieval as the reference dataset
-  grows.
+- Add filtering and pagination to catalogue and booking lists as their datasets
+  grow.
 
 ## Project layout
 
@@ -710,9 +849,10 @@ correlation, and consistent JSON 404 handling.
     │   ├── migrations/          # Ordered SQL schema migrations
     │   ├── migrate.js           # Transactional migration runner
     │   └── seed.js              # Idempotent reference catalogue
+    ├── integration/             # Disposable PostgreSQL integration suite
     ├── src/
     │   ├── auth/                # Signup, login, and JWT support
-    │   ├── bookings/            # Authenticated booking creation
+    │   ├── bookings/            # Authenticated booking creation and retrieval
     │   ├── diagnostics/         # Centre, test, and offering APIs
     │   ├── middleware/          # Auth, roles, logging, 404, and errors
     │   ├── payments/            # Payments, webhooks, and retry worker
@@ -720,7 +860,7 @@ correlation, and consistent JSON 404 handling.
     │   ├── database.js          # PostgreSQL pool factory
     │   ├── logger.js            # Structured JSON logger
     │   └── server.js            # Runtime lifecycle
-    ├── test/                    # Automated test suite
+    ├── test/                    # Isolated request and service tests
     ├── .env.example
     ├── Dockerfile
     ├── package.json

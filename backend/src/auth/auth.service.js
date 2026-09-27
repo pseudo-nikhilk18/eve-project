@@ -1,6 +1,10 @@
 import argon2 from 'argon2';
 import { HttpError } from '../errors/http-error.js';
 
+// Keep unknown-account and wrong-password paths to one Argon2 verification.
+const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,p=4,t=3$av/BnVzFDEsBcMtvDOPOOA$PuayqNYQmZc7cFHCbZ4h4nzYDe0IhJ9u2JUuWVaaicw';
+
 export async function signupUser({ database, fullName, email, password }) {
   const passwordHash = await argon2.hash(password, {
     type: argon2.argon2id,
@@ -52,8 +56,10 @@ export async function authenticateUser({ database, email, password }) {
   );
 
   const user = result.rows[0];
+  const passwordHash = user?.passwordHash ?? DUMMY_PASSWORD_HASH;
+  const passwordMatches = await argon2.verify(passwordHash, password);
 
-  if (!user || !(await argon2.verify(user.passwordHash, password))) {
+  if (!user || !passwordMatches) {
     throw new HttpError(
       401,
       'INVALID_CREDENTIALS',

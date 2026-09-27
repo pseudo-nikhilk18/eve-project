@@ -9,7 +9,8 @@
     "db:seed": "node --env-file-if-exists=.env db/seed.js",
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:integration": "node --test --test-concurrency=1 integration/postgresql.integration.js"
   },
   "dependencies": {
     "argon2": "^0.45.1",

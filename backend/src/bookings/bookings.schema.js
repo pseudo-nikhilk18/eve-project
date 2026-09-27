@@ -10,3 +10,7 @@ export const createBookingSchema = z
     ),
   })
   .strict();
+
+export const bookingParamsSchema = z.object({
+  bookingId: z.uuid(),
+});

@@ -311,6 +311,26 @@ test('PUT /api/v1/diagnostic-centres/:centreId/tests/:testId validates IDs and p
   assert.equal(queryCalled, false);
 });
 
+test('PUT /api/v1/diagnostic-centres/:centreId/tests/:testId rejects a price that exceeds database storage', async () => {
+  let queryCalled = false;
+  const database = {
+    async query() {
+      queryCalled = true;
+    },
+  };
+  const centreId = '54a43c3e-51de-464e-9205-9f6d87443688';
+  const testId = 'c9c9f963-1199-49a0-bc20-f42771b6f7cf';
+
+  const response = await request(createApp({ database, tokenService }))
+    .put(`/api/v1/diagnostic-centres/${centreId}/tests/${testId}`)
+    .set('Authorization', authorizationHeader('ADMIN'))
+    .send({ price: 99_999_999_999 });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error.code, 'VALIDATION_ERROR');
+  assert.equal(queryCalled, false);
+});
+
 test('PUT /api/v1/diagnostic-centres/:centreId/tests/:testId rejects missing resources', async () => {
   const centreId = '54a43c3e-51de-464e-9205-9f6d87443688';
   const testId = 'c9c9f963-1199-49a0-bc20-f42771b6f7cf';

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { databaseText } from '../validation.js';
 
 export const createPaymentSchema = z
   .object({
@@ -9,8 +10,8 @@ export const createPaymentSchema = z
 
 export const paymentWebhookSchema = z
   .object({
-    eventId: z.string().trim().min(1).max(120),
-    providerReference: z.string().trim().min(1).max(120),
+    eventId: databaseText(z.string().trim().min(1).max(120)),
+    providerReference: databaseText(z.string().trim().min(1).max(120)),
     status: z.enum(['SUCCESS', 'FAILED']),
   })
   .strict();
