@@ -2,10 +2,12 @@ import express from 'express';
 import { createAuthRouter } from './auth/auth.routes.js';
 import { createBookingsRouter } from './bookings/bookings.routes.js';
 import { createDiagnosticsRouter } from './diagnostics/diagnostics.routes.js';
-import { errorHandler } from './middleware/error-handler.js';
+import { silentLogger } from './logger.js';
+import { createErrorHandler } from './middleware/error-handler.js';
+import { createRequestLogger } from './middleware/request-logger.js';
 import { createPaymentsRouter } from './payments/payments.routes.js';
 
-export function createApp({ database, tokenService } = {}) {
+export function createApp({ database, tokenService, logger = silentLogger } = {}) {
   if (!database) {
     throw new Error('A database connection is required to create the API');
   }
@@ -16,6 +18,7 @@ export function createApp({ database, tokenService } = {}) {
 
   const app = express();
 
+  app.use(createRequestLogger({ logger }));
   app.use(express.json());
 
   app.get('/health', (_request, response) => {
@@ -26,7 +29,7 @@ export function createApp({ database, tokenService } = {}) {
   app.use('/api/v1', createDiagnosticsRouter({ database, tokenService }));
   app.use('/api/v1/bookings', createBookingsRouter({ database, tokenService }));
   app.use('/api/v1/payments', createPaymentsRouter({ database, tokenService }));
-  app.use(errorHandler);
+  app.use(createErrorHandler({ logger }));
 
   return app;
 }

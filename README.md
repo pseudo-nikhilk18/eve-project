@@ -91,6 +91,22 @@ npm test
 Integration tests exercise the Express application directly without starting
 the development server.
 
+## Structured logging
+
+The API writes newline-delimited JSON records to standard output. HTTP request
+records include a correlation ID, method, path, response status, and duration:
+
+```json
+{"timestamp":"2026-09-27T10:00:00.000Z","level":"info","event":"http.request.completed","requestId":"75e64077-216d-42b1-8feb-870d6d5a6214","method":"POST","path":"/api/v1/bookings","statusCode":201,"durationMs":12.4}
+```
+
+A caller can supply an `X-Request-Id` containing letters, numbers, `.`, `_`,
+`:`, or `-`; otherwise, the API generates a UUID. The selected ID is returned
+in the response header and included in request-related error records. Server
+lifecycle and webhook retry-worker events use the same JSON format. Request
+bodies, query strings, authorization headers, tokens, passwords, and database
+credentials are not logged.
+
 ## API endpoints
 
 | Method | Path | Authentication | Purpose |
@@ -545,6 +561,7 @@ backend/
 │   ├── middleware/
 │   │   ├── authenticate.js
 │   │   ├── error-handler.js
+│   │   ├── request-logger.js
 │   │   └── require-role.js
 │   ├── payments/
 │   │   ├── payments.controller.js
@@ -555,6 +572,7 @@ backend/
 │   │   └── webhook.service.js
 │   ├── app.js
 │   ├── database.js
+│   ├── logger.js
 │   └── server.js
 ├── test/
 │   ├── authenticate.test.js
@@ -563,6 +581,7 @@ backend/
 │   ├── diagnostics.test.js
 │   ├── health.test.js
 │   ├── login.test.js
+│   ├── logging.test.js
 │   ├── payments.test.js
 │   ├── signup.test.js
 │   └── webhook.test.js

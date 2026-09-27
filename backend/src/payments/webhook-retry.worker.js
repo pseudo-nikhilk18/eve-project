@@ -1,4 +1,5 @@
 import { HttpError } from '../errors/http-error.js';
+import { serializeError, silentLogger } from '../logger.js';
 import { processStoredWebhookEvent } from './webhook.service.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
@@ -7,6 +8,7 @@ const DEFAULT_BATCH_SIZE = 20;
 export async function processDueWebhookEvents({
   database,
   batchSize = DEFAULT_BATCH_SIZE,
+  logger = silentLogger,
 }) {
   const result = await database.query(
     `
@@ -22,11 +24,26 @@ export async function processDueWebhookEvents({
 
   for (const { eventId } of result.rows) {
     try {
-      await processStoredWebhookEvent({ database, eventId });
+      const processed = await processStoredWebhookEvent({ database, eventId });
+
+      if (processed.event.processingStatus === 'PROCESSED') {
+        logger.info('webhook.retry.processed', { eventId });
+      } else {
+        logger.warn('webhook.retry.deferred', {
+          eventId,
+          attemptCount: processed.event.attemptCount,
+          nextAttemptAt: processed.event.nextAttemptAt,
+        });
+      }
     } catch (error) {
       if (!(error instanceof HttpError)) {
         throw error;
       }
+
+      logger.warn('webhook.retry.exhausted', {
+        eventId,
+        error: serializeError(error),
+      });
     }
   }
 
@@ -36,7 +53,7 @@ export async function processDueWebhookEvents({
 export function startWebhookRetryWorker({
   database,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-  onError = (error) => console.error('Webhook retry cycle failed', error),
+  logger = silentLogger,
 }) {
   let timer;
   let stopped = false;
@@ -52,7 +69,11 @@ export function startWebhookRetryWorker({
   }
 
   async function runCycle() {
-    activeCycle = processDueWebhookEvents({ database }).catch(onError);
+    activeCycle = processDueWebhookEvents({ database, logger }).catch((error) => {
+      logger.error('webhook.retry_cycle.failed', {
+        error: serializeError(error),
+      });
+    });
     await activeCycle;
     scheduleNextCycle();
   }

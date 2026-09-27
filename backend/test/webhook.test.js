@@ -411,6 +411,7 @@ test('a duplicate delivery does not bypass a pending retry delay', async () => {
 });
 
 test('the retry worker processes a due webhook event', async () => {
+  const logRecords = [];
   const { database, state } = createWebhookDatabase({
     payment: {
       paymentId,
@@ -425,13 +426,25 @@ test('the retry worker processes a due webhook event', async () => {
     },
   });
 
-  const processedCount = await processDueWebhookEvents({ database });
+  const processedCount = await processDueWebhookEvents({
+    database,
+    logger: {
+      info(event, fields) {
+        logRecords.push({ event, ...fields });
+      },
+      warn() {},
+      error() {},
+    },
+  });
 
   assert.equal(processedCount, 1);
   assert.equal(state.event.processingStatus, 'PROCESSED');
   assert.equal(state.event.attemptCount, 2);
   assert.equal(state.payment.paymentStatus, 'SUCCESS');
   assert.equal(state.payment.bookingStatus, 'CONFIRMED');
+  assert.deepEqual(logRecords, [
+    { event: 'webhook.retry.processed', eventId },
+  ]);
 });
 
 test('webhook processing stops after three failed attempts', async () => {

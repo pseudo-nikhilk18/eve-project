@@ -3,8 +3,9 @@ import { test } from 'node:test';
 import express from 'express';
 import request from 'supertest';
 import { createTokenService } from '../src/auth/token.service.js';
+import { silentLogger } from '../src/logger.js';
 import { createAuthenticate } from '../src/middleware/authenticate.js';
-import { errorHandler } from '../src/middleware/error-handler.js';
+import { createErrorHandler } from '../src/middleware/error-handler.js';
 
 const tokenService = createTokenService({ secret: 'middleware-test-secret' });
 
@@ -18,7 +19,7 @@ function createProtectedApp() {
       response.json({ data: protectedRequest.auth });
     },
   );
-  app.use(errorHandler);
+  app.use(createErrorHandler({ logger: silentLogger }));
 
   return app;
 }
