@@ -1,0 +1,14 @@
+{
+  "name": "eve-backend",
+  "version": "1.0.0",
+  "description": "API for the EVE Healthcare diagnostic booking application",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
